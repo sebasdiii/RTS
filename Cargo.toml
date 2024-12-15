@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+amiquip = "0.4.2"
+get_user_input = "0.1.1"
+rand = "0.8.5"
+serde = "1.0.216"
+serde_json = "1.0.133"
+egui = "0.29.1"
+eframe = "0.29.1"
