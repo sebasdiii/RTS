@@ -71,6 +71,7 @@ fn publish_stock_updates(stocks: &Arc<Mutex<Vec<Stock>>>, exchange: &Exchange) {
 
                 println!("[Stock Sent] {}", message);
             }
+            println!("--------------------------------------------------------------------------")
         }
 
         // Simulate stock price fluctuations
