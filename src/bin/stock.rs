@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 
 fn main() {
+
     // Shared stock data
     let stocks = Arc::new(Mutex::new(initialize_stocks()));
 
@@ -45,7 +46,7 @@ fn main() {
             apply_random_event(&stocks_clone);
         }
     });
-
+    
     // Keep the main thread alive for future extensions
     loop {
         thread::sleep(Duration::from_secs(1));
@@ -108,18 +109,26 @@ fn consume_orders(channel: &amiquip::Channel, stocks: Arc<Mutex<Vec<Stock>>>) {
                 if let Ok(order) = serde_json::from_str::<serde_json::Value>(&order_data) {
                     let stock_name = order["stock"].as_str().unwrap_or("");
                     let action = order["action"].as_str().unwrap_or("");
-                    let quantity = order["quantity"].as_u64().unwrap_or(0);
+                    let quantity = order["quantity"].as_u64().unwrap_or(0) as u32;
 
-                    // Update stock availability based on the order
+                    // Update stock availability and price based on the order
                     let mut stocks = stocks.lock().unwrap();
                     if let Some(stock) = stocks.iter_mut().find(|s| s.name == stock_name) {
+                        let percentage_of_availability = quantity as f64 / stock.availability as f64;
+
                         match action {
                             "Buy" => {
-                                if stock.availability >= quantity as u32 {
-                                    stock.availability -= quantity as u32;
+                                if stock.availability >= quantity {
+                                    stock.availability -= quantity;
+
+                                    // Price increases proportionally (capped at 15%)
+                                    let price_increase = stock.price
+                                        * (percentage_of_availability * 0.8).min(0.15); // Scale by 80%, max 15%
+                                    stock.price += price_increase;
+
                                     println!(
-                                        "[Order Processed] Stock: {}, Action: {}, Quantity: {}, Remaining: {}",
-                                        stock_name, action, quantity, stock.availability
+                                        "[Order Processed] Stock: {}, Action: {}, Quantity: {}, Remaining: {}, New Price: {:.2}",
+                                        stock_name, action, quantity, stock.availability, stock.price
                                     );
                                 } else {
                                     println!(
@@ -129,10 +138,16 @@ fn consume_orders(channel: &amiquip::Channel, stocks: Arc<Mutex<Vec<Stock>>>) {
                                 }
                             }
                             "Sell" => {
-                                stock.availability += quantity as u32;
+                                stock.availability += quantity;
+
+                                // Price decreases proportionally (capped at 15%)
+                                let price_decrease = stock.price
+                                    * (percentage_of_availability * 0.8).min(0.15); // Scale by 80%, max 15%
+                                stock.price = (stock.price - price_decrease).max(1.0); // Ensure price stays positive
+
                                 println!(
-                                    "[Order Processed] Stock: {}, Action: {}, Quantity: {}, New Availability: {}",
-                                    stock_name, action, quantity, stock.availability
+                                    "[Order Processed] Stock: {}, Action: {}, Quantity: {}, New Availability: {}, New Price: {:.2}",
+                                    stock_name, action, quantity, stock.availability, stock.price
                                 );
                             }
                             _ => println!("[Order Error] Unknown action: {}", action),
@@ -151,6 +166,8 @@ fn consume_orders(channel: &amiquip::Channel, stocks: Arc<Mutex<Vec<Stock>>>) {
         }
     }
 }
+
+
 
 // Function to apply random events
 fn apply_random_event(stocks: &Arc<Mutex<Vec<Stock>>>) {

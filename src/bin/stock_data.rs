@@ -7,13 +7,6 @@ pub struct Stock {
     pub availability: u32, // Number of shares available
 }
 
-// impl Stock {
-//     // Simulate price fluctuation for the stock
-//     pub fn fluctuate_price(&mut self) {
-//         let change = (random::<f64>() - 0.5) * 10.0; // Random fluctuation [-5, +5]
-//         self.price = (self.price + change).max(1.0); // Ensure price stays positive
-//     }
-// }
 impl Stock {
     // Simulate price fluctuation for the stock
     pub fn fluctuate_price(&mut self) {
