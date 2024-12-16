@@ -44,30 +44,21 @@
 //         }
 //     }
 // }
-mod ui;
-mod stock_data; // Import the stock_data module
 
-use amiquip::{
-    Connection, ConsumerMessage, ConsumerOptions, Exchange, Publish, QueueDeclareOptions,
-};
+
+mod ui;
+mod stock_data;
+mod brokers; // Add the brokers module
+
+use amiquip::{Connection, ConsumerMessage, ConsumerOptions, Exchange, Publish, QueueDeclareOptions};
 use rand::Rng;
-use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use stock_data::initialize_stocks; // Import the initialize_stocks function
-use ui::{StockApp, StockUpdate};
-
-// Struct for Order
-#[derive(Serialize, Deserialize, Debug)]
-struct Order {
-    order_id: u32,
-    stock: String,
-    action: String, 
-    quantity: u32,
-    price: f64,
-}
+use brokers::{Broker, Order};
+use stock_data::initialize_stocks;
 
 fn main() {
     // Shared state for unique order IDs
@@ -76,7 +67,15 @@ fn main() {
     // Shared map for latest stock prices
     let stock_prices = Arc::new(Mutex::new(HashMap::new()));
 
-    // Spawn a thread to consume stock updates
+    // Communication channel between brokers and stock system
+    let (sender, receiver) = mpsc::channel::<Order>();
+
+    // Initialize brokers
+    let mut brokers: Vec<Broker> = (1..=3)
+        .map(|id| Broker::new(id, sender.clone()))
+        .collect();
+
+    // Thread to handle stock updates
     let stock_prices_clone = Arc::clone(&stock_prices);
     thread::spawn(move || {
         let mut connection = Connection::insecure_open("amqp://guest:guest@localhost:5672")
@@ -86,39 +85,48 @@ fn main() {
         consume_stock_updates(&channel, stock_prices_clone);
     });
 
-    // Spawn a thread for generating and publishing orders
-    let order_id_clone = Arc::clone(&order_id);
-    let stock_prices_clone = Arc::clone(&stock_prices);
+    // Thread to process orders from brokers to stock system
     thread::spawn(move || {
         let mut connection = Connection::insecure_open("amqp://guest:guest@localhost:5672")
             .expect("Failed to connect to RabbitMQ");
         let channel = connection.open_channel(None).expect("Failed to open channel");
         let exchange = Exchange::direct(&channel);
 
-        // Initialize stock data
+        for order in receiver {
+            let order_json = serde_json::to_string(&order).expect("Failed to serialize order");
+
+            exchange
+                .publish(Publish::new(order_json.as_bytes(), "order_queue"))
+                .expect("Failed to publish order");
+
+            println!("[Stock System] Order Sent: {:?}", order);
+        }
+    });
+
+    // Thread to generate orders and assign them to brokers
+    let order_id_clone = Arc::clone(&order_id);
+    let stock_prices_clone = Arc::clone(&stock_prices);
+    thread::spawn(move || {
         let stock_list = initialize_stocks();
 
         loop {
-            // Introduce randomness in order generation frequency
-            let should_generate_order = rand::thread_rng().gen_bool(0.4); // 40% chance to generate an order
-            if should_generate_order {
-                let order = generate_order(
-                    Arc::clone(&order_id_clone),
-                    Arc::clone(&stock_prices_clone),
-                    &stock_list,
-                );
-                let order_json = serde_json::to_string(&order).expect("Failed to serialize order");
+            // Randomly select a broker
+            let mut rng = rand::thread_rng();
+            let broker_id = rng.gen_range(0..3);
+            let broker = &mut brokers[broker_id];
 
-                // Publish the order to RabbitMQ
-                exchange
-                    .publish(Publish::new(order_json.as_bytes(), "order_queue"))
-                    .expect("Failed to publish order");
+            // Generate a random order
+            let order = generate_order(
+                Arc::clone(&order_id_clone),
+                Arc::clone(&stock_prices_clone),
+                &stock_list,
+            );
 
-                println!("[Order Sent]: {:?}", order);
-            }
+            println!("[Broker {}] Received order: {:?}", broker.id, order);
+            broker.handle_order(order);
 
-            // Randomize delay before checking again
-            let delay = rand::thread_rng().gen_range(5..10); // Random delay between 5 and 10 seconds
+            // Random delay between order generation
+            let delay = rng.gen_range(5..10);
             thread::sleep(Duration::from_secs(delay));
         }
     });
@@ -129,11 +137,11 @@ fn main() {
     }
 }
 
-// Function to generate a random order using synchronized stock prices
+// Function to generate a random order
 fn generate_order(
     order_id: Arc<Mutex<u32>>,
     stock_prices: Arc<Mutex<HashMap<String, f64>>>,
-    stock_list: &[stock_data::Stock], // Accept stock_list as a parameter
+    stock_list: &[stock_data::Stock],
 ) -> Order {
     let mut rng = rand::thread_rng();
     let stock = stock_list[rng.gen_range(0..stock_list.len())].name.clone();
@@ -160,7 +168,7 @@ fn generate_order(
     }
 }
 
-// Function to consume stock updates from RabbitMQ and update stock prices
+// Function to consume stock updates
 fn consume_stock_updates(channel: &amiquip::Channel, stock_prices: Arc<Mutex<HashMap<String, f64>>>) {
     let queue = channel
         .queue_declare("stock_updates", QueueDeclareOptions::default())
@@ -178,7 +186,6 @@ fn consume_stock_updates(channel: &amiquip::Channel, stock_prices: Arc<Mutex<Has
                 let stock_update = String::from_utf8_lossy(&delivery.body);
                 println!("[Stock Update Received]: {}", stock_update);
 
-                // Parse the stock update and store it in the map
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stock_update) {
                     if let (Some(stock), Some(price)) = (
                         parsed["stock"].as_str(),
