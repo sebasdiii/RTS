@@ -64,7 +64,7 @@ use ui::{StockApp, StockUpdate};
 struct Order {
     order_id: u32,
     stock: String,
-    action: String, // "Buy" or "Sell"
+    action: String, 
     quantity: u32,
     price: f64,
 }
