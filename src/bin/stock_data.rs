@@ -1,6 +1,7 @@
 use rand::random;
 
 #[derive(Debug, Clone)]
+
 pub struct Stock {
     pub name: String,
     pub price: f64,
