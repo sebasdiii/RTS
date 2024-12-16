@@ -45,6 +45,7 @@
 //     }
 // }
 mod ui;
+mod stock_data; // Import the stock_data module
 
 use amiquip::{
     Connection, ConsumerMessage, ConsumerOptions, Exchange, Publish, QueueDeclareOptions,
@@ -55,6 +56,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use stock_data::initialize_stocks; // Import the initialize_stocks function
 use ui::{StockApp, StockUpdate};
 
 // Struct for Order
@@ -93,6 +95,9 @@ fn main() {
         let channel = connection.open_channel(None).expect("Failed to open channel");
         let exchange = Exchange::direct(&channel);
 
+        // Initialize stock data
+        let stock_list = initialize_stocks();
+
         loop {
             // Introduce randomness in order generation frequency
             let should_generate_order = rand::thread_rng().gen_bool(0.4); // 40% chance to generate an order
@@ -100,6 +105,7 @@ fn main() {
                 let order = generate_order(
                     Arc::clone(&order_id_clone),
                     Arc::clone(&stock_prices_clone),
+                    &stock_list,
                 );
                 let order_json = serde_json::to_string(&order).expect("Failed to serialize order");
 
@@ -127,10 +133,10 @@ fn main() {
 fn generate_order(
     order_id: Arc<Mutex<u32>>,
     stock_prices: Arc<Mutex<HashMap<String, f64>>>,
+    stock_list: &[stock_data::Stock], // Accept stock_list as a parameter
 ) -> Order {
     let mut rng = rand::thread_rng();
-    let stock_list = vec!["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"];
-    let stock = stock_list[rng.gen_range(0..stock_list.len())].to_string();
+    let stock = stock_list[rng.gen_range(0..stock_list.len())].name.clone();
 
     let action = if rng.gen_bool(0.5) { "Buy" } else { "Sell" }.to_string();
     let quantity = rng.gen_range(1..100); // Random quantity between 1 and 100
@@ -180,11 +186,7 @@ fn consume_stock_updates(channel: &amiquip::Channel, stock_prices: Arc<Mutex<Has
                     ) {
                         let mut prices = stock_prices.lock().unwrap();
                         prices.insert(stock.to_string(), price);
-                        println!(
-                            "[Stock Price Updated]: {} -> {:.2}",
-                            stock.to_string(),
-                            price
-                        );
+                        println!("[Stock Price Updated]: {} -> {:.2}", stock, price);
                     }
                 }
 
