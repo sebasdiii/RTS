@@ -65,7 +65,12 @@ fn main() {
     let order_id = Arc::new(Mutex::new(0));
 
     // Shared map for latest stock prices
-    let stock_prices = Arc::new(Mutex::new(HashMap::new()));
+    let stock_prices = Arc::new(Mutex::new(
+        initialize_stocks()
+            .into_iter()
+            .map(|stock| (stock.name.clone(), stock.price))
+            .collect::<HashMap<String, f64>>(),
+    ));
 
     // Communication channel between brokers and stock system
     let (sender, receiver) = mpsc::channel::<Order>();
@@ -77,6 +82,11 @@ fn main() {
 
     // Thread to handle stock updates
     let stock_prices_clone = Arc::clone(&stock_prices);
+
+    let order_id_clone = Arc::clone(&order_id);
+
+    let stock_updates_ready = Arc::new(Mutex::new(false));
+
     thread::spawn(move || {
         let mut connection = Connection::insecure_open("amqp://guest:guest@localhost:5672")
             .expect("Failed to connect to RabbitMQ");
@@ -103,9 +113,8 @@ fn main() {
         }
     });
 
-    // Thread to generate orders and assign them to brokers
-    let order_id_clone = Arc::clone(&order_id);
     let stock_prices_clone = Arc::clone(&stock_prices);
+
     thread::spawn(move || {
         let stock_list = initialize_stocks();
 
@@ -139,36 +148,35 @@ fn main() {
 
 // Function to generate a random order
 fn generate_order(
-    order_id: Arc<Mutex<u32>>,
-    stock_prices: Arc<Mutex<HashMap<String, f64>>>,
-    stock_list: &[stock_data::Stock],
-) -> Order {
-    let mut rng = rand::thread_rng();
-    let stock = stock_list[rng.gen_range(0..stock_list.len())].name.clone();
+        order_id: Arc<Mutex<u32>>,
+        stock_prices: Arc<Mutex<HashMap<String, f64>>>,
+        stock_list: &[stock_data::Stock],
+    ) -> Order {
+        let mut rng = rand::thread_rng();
+        let stock = stock_list[rng.gen_range(0..stock_list.len())].name.clone();
 
-    let action = if rng.gen_bool(0.5) { "Buy" } else { "Sell" }.to_string();
-    let quantity = rng.gen_range(1..100); // Random quantity between 1 and 100
+        let action = if rng.gen_bool(0.5) { "Buy" } else { "Sell" }.to_string();
+        let quantity = rng.gen_range(1..100); // Random quantity between 1 and 100
 
-    // Get the synchronized stock price
-    let price = {
-        let prices = stock_prices.lock().unwrap();
-        prices.get(&stock).copied().unwrap_or(0.0) // Default price if not found
-    };
+        // Get the synchronized stock price
+        let price = {
+            let prices = stock_prices.lock().unwrap();
+            prices.get(&stock).copied().unwrap_or(0.0) // Default price if not found
+        };
 
-    // Generate a unique order ID
-    let mut id = order_id.lock().unwrap();
-    *id += 1;
+        // Generate a unique order ID
+        let mut id = order_id.lock().unwrap();
+        *id += 1;
 
-    Order {
-        order_id: *id,
-        stock,
-        action,
-        quantity,
-        price,
+        Order {
+            order_id: *id,
+            stock,
+            action,
+            quantity,
+            price,
+        }
     }
-}
 
-// Function to consume stock updates
 fn consume_stock_updates(channel: &amiquip::Channel, stock_prices: Arc<Mutex<HashMap<String, f64>>>) {
     let queue = channel
         .queue_declare("stock_updates", QueueDeclareOptions::default())
@@ -184,6 +192,7 @@ fn consume_stock_updates(channel: &amiquip::Channel, stock_prices: Arc<Mutex<Has
         match message {
             ConsumerMessage::Delivery(delivery) => {
                 let stock_update = String::from_utf8_lossy(&delivery.body);
+
                 println!("[Stock Update Received]: {}", stock_update);
 
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stock_update) {
@@ -206,3 +215,4 @@ fn consume_stock_updates(channel: &amiquip::Channel, stock_prices: Arc<Mutex<Has
         }
     }
 }
+
