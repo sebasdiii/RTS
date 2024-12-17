@@ -65,7 +65,7 @@ fn publish_stock_updates(stock_data: &Arc<Mutex<Vec<Stock>>>, exchange: &Exchang
             let stock_data_locked = stock_data.lock().unwrap();
             for stock in stock_data_locked.iter() {
                 let message = format!(
-                    "{{Stock: {} | Price: {:.2} | Availability: {}}}",
+                    "{{\"Stock\": \"{}\", \"Price\": {:.2}, \"Availability\": {}}}",
                     stock.name, stock.price, stock.availability
                 );
 
@@ -135,7 +135,7 @@ fn consume_orders(channel: &amiquip::Channel, stock_data: Arc<Mutex<Vec<Stock>>>
                                     stock.price += price_increase;
 
                                     println!(
-                                        "[Order Processed] Stock: {}, Action: {}, Quantity: {}, Remaining: {}, New Price: {:.2}\n",
+                                        "[Order Processed] Stock: {}, Action: {}, Quantity: {}, Remaining: {}, New Price: {:.2}",
                                         stock_name, action, quantity, stock.availability, stock.price
                                     );
                                 } else {
@@ -211,7 +211,7 @@ fn apply_random_event(stock_data: &Arc<Mutex<Vec<Stock>>>) {
             stock.name, stock.price, stock.availability
         );
     }
-    println!("--------------------------------------------------------------------------/n");
+    println!("----------------------------\n");
 
 }
 
