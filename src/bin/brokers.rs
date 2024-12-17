@@ -85,87 +85,87 @@ impl Broker {
         }
     }
 
-    // Handle an incoming order from the client
     pub fn handle_order(&mut self, order: Order) {
         match order.order_type.as_str() {
             "Market" => {
                 println!(
-                    "[Broker {}] Processing Market Order: {:?}",
-                    self.id, order
+                    "[Broker] Processing Market Order: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}",
+                    order.stock, order.action, order.quantity, order.price
                 );
                 self.process_market_order(order);
             }
             "Limit" => {
                 println!(
-                    "[Broker {}] Processing Limit Order: {:?}",
-                    self.id, order
+                    "[Broker] Processing Limit Order: Stock: {}, Action: {}, Quantity: {}, Limit Price: {:.2}",
+                    order.stock, order.action, order.quantity, order.price
                 );
                 self.process_limit_order(order);
             }
-            _ => {
-                println!(
-                    "[Broker {}] Unknown order type: {:?}",
-                    self.id, order
-                );
-            }
+            _ => println!("[Broker] Unknown order type: {:?}", order),
         }
-    }
+    }    
 
     fn process_market_order(&self, mut order: Order) {
-        // Fetch the current market price for the stock
+        // Fetch the current market price
         let current_price = {
             let prices = self.stock_prices.lock().unwrap();
-            *prices.get(&order.stock).unwrap_or(&0.0) // Default to 0.0 if not found
+            *prices.get(&order.stock).unwrap_or(&0.0)
         };
     
-        // Update the order's price to the current market price
+        // Set the current market price
         order.price = current_price;
     
+        println!("-----------------------------[Market Order]-------------------------------\n");
         println!(
-            "[Market Order] Broker {} executed order:\n  Stock: {}\n  Action: {}\n  Quantity: {}\n  Price: {:.2}\n",
-            self.id, order.stock, order.action, order.quantity, order.price
+            "[Market Order Executed] Stock: {}, Action: {}, Quantity: {}, Price: {:.2}\n",
+            order.stock, order.action, order.quantity, order.price
         );
+    
+        // Clone the order before sending
+        let order_to_send = order.clone();
     
         // Send the market order to the stock system
         self.sender
-            .send(order)
+            .send(order_to_send)
             .expect("Failed to send market order to stock system");
-    }
-
-    fn process_limit_order(&self, order: Order) {
-        if order.price <= 0.0 {
-            println!("[Limit Order] Invalid order price: {:?}", order);
-            return;
-        }
     
+        println!(
+            "[Stock System] Market Order Sent: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}, Type: Market\n",
+            order.stock, order.action, order.quantity, order.price
+        );
+    }
+    
+    fn process_limit_order(&self, order: Order) {
         let stock_name = order.stock.clone();
         let action = order.action.clone();
         let limit_price = order.price;
         let stock_prices = Arc::clone(&self.stock_prices);
         let sender = self.sender.clone();
     
+        println!("\n------------------------------------------------------------\n");
         println!(
-            "[Limit Order] Broker {} received order:\n  Stock: {}\n  Action: {}\n  Quantity: {}\n  Limit Price: {:.2}\n",
-            self.id, order.stock, order.action, order.quantity, order.price
+            "[Limit Order Received]\n  Stock: {}\n  Action: {}\n  Quantity: {}\n  Limit Price: {:.2}",
+            stock_name, action, order.quantity, limit_price
         );
     
         thread::spawn(move || {
             loop {
+                // Check the current stock price
                 let current_price = {
                     let prices = stock_prices.lock().unwrap();
                     *prices.get(&stock_name).unwrap_or(&0.0)
                 };
     
-                // Check if the limit condition is met
+                // Check if the condition is met
                 let condition_met = match action.as_str() {
-                    "Buy" => current_price <= limit_price, // Buy if price is <= limit
-                    "Sell" => current_price >= limit_price, // Sell if price is >= limit
+                    "Buy" => current_price <= limit_price, // Buy if price <= limit
+                    "Sell" => current_price >= limit_price, // Sell if price >= limit
                     _ => false,
                 };
     
                 if condition_met {
                     println!(
-                        "[Limit Order Executed] Stock: {} | Action: {} | Quantity: {} | Price: {:.2} | Limit: {:.2}",
+                        "[Limit Order Executed]\n  Stock: {}\n  Action: {}\n  Quantity: {}\n  Price: {:.2} | Limit: {:.2}",
                         stock_name, action, order.quantity, current_price, limit_price
                     );
     
@@ -174,10 +174,14 @@ impl Broker {
                         .send(order.clone())
                         .expect("Failed to send limit order to stock system");
     
+                    println!(
+                        "[Stock System] Order Sent: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}, Type: Limit\n------------------------------------------------------------\n",
+                        stock_name, action, order.quantity, current_price
+                    );
                     break;
                 }
     
-                // Wait before rechecking the price
+                // Sleep before rechecking
                 thread::sleep(Duration::from_secs(2));
             }
         });

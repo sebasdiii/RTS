@@ -308,7 +308,7 @@ fn start_order_processing_thread(receiver: mpsc::Receiver<Order>) {
                 .publish(Publish::new(order_json.as_bytes(), "order_queue"))
                 .expect("Failed to publish order");
 
-            println!("[Stock System] Order Sent: {:?}", order);
+            println!("[Stock System] Order Sent: {:?}\n\n------------------------------------------------------------\n", order);
         }
     });
 }
@@ -335,13 +335,13 @@ fn start_order_generation_thread(
                 &stock_list,
             );
 
-            println!("[Broker {}] Received order: {:?}", broker.id, order);
+            println!("[Broker] Received order: {:?}\n------------------------------------------------------------", order);
 
             // Process the order based on its type
             match order.order_type.as_str() {
                 "Market" => broker.handle_order(order), // Market order
                 "Limit" => process_limit_order(order, Arc::clone(&stock_prices), broker.sender.clone()), // Limit order
-                _ => println!("[Broker {}] Unknown order type: {:?}", broker.id, order),
+                _ => println!("[Broker] Unknown order type: {:?}", order),
             }
 
             // Random delay between order generation
@@ -406,7 +406,6 @@ fn generate_order(
     }
 }
 
-
 fn consume_stock_updates(
     channel: &amiquip::Channel,
     stock_prices: Arc<Mutex<HashMap<String, f64>>>,
@@ -420,6 +419,7 @@ fn consume_stock_updates(
         .expect("Failed to start consumer");
 
     println!("[Stock Update Monitor Started]");
+    println!("------------------------------------------------------------");
 
     for message in consumer.receiver().iter() {
         match message {
@@ -451,6 +451,8 @@ fn consume_stock_updates(
                 consumer
                     .ack(delivery)
                     .expect("Failed to acknowledge message");
+
+                println!("------------------------------------------------------------");
             }
             other => {
                 println!("Consumer ended: {:?}", other);
@@ -484,14 +486,14 @@ fn process_limit_order(
 
             if condition_met {
                 println!(
-                    "[Broker] Limit order condition met: Stock: {}, Action: {}, Price: {:.2}, Limit: {:.2}",
+                    "[Broker] Limit order condition met: Stock: {}, Action: {}, Price: {:.2}, Limit: {:.2}\n",
                     stock_name, order.action, current_price, order.price
                 );
 
                 // Send the order to the stock system
                 sender.send(order.clone()).expect("Failed to send limit order to stock system");
                 println!(
-                    "[Broker] Limit order sent to stock system: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}",
+                    "[Broker] Limit order sent to stock system: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}\n------------------------------------------------------------\n",
                     stock_name, order.action, order.quantity, order.price
                 );
                 break;
