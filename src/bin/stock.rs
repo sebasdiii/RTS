@@ -135,7 +135,7 @@ fn consume_orders(channel: &amiquip::Channel, stock_data: Arc<Mutex<Vec<Stock>>>
                                     stock.price += price_increase;
 
                                     println!(
-                                        "[Order Processed] Stock: {}, Action: {}, Quantity: {}, Remaining: {}, New Price: {:.2}",
+                                        "[Order Processed] Stock: {}, Action: {}, Quantity: {}, Remaining: {}, New Price: {:.2}\n",
                                         stock_name, action, quantity, stock.availability, stock.price
                                     );
                                 } else {
@@ -154,7 +154,7 @@ fn consume_orders(channel: &amiquip::Channel, stock_data: Arc<Mutex<Vec<Stock>>>
                                 stock.price = (stock.price - price_decrease).max(1.0); // Ensure price stays positive
 
                                 println!(
-                                    "[Order Processed] Stock: {}, Action: {}, Quantity: {}, New Availability: {}, New Price: {:.2}",
+                                    "[Order Processed] Stock: {}, Action: {}, Quantity: {}, New Availability: {}, New Price: {:.2}\n",
                                     stock_name, action, quantity, stock.availability, stock.price
                                 );
                             }
@@ -211,7 +211,7 @@ fn apply_random_event(stock_data: &Arc<Mutex<Vec<Stock>>>) {
             stock.name, stock.price, stock.availability
         );
     }
-    println!("----------------------------\n");
+    println!("--------------------------------------------------------------------------\n");
 
 }
 
