@@ -430,9 +430,9 @@ fn consume_stock_updates(
                     serde_json::from_str::<serde_json::Value>(&stock_update)
                 {
                     if let (Some(stock), Some(price), Some(availability)) = (
-                        parsed["stock"].as_str(),
-                        parsed["price"].as_f64(),
-                        parsed["availability"].as_u64(),
+                        parsed["Stock"].as_str(),
+                        parsed["Price"].as_f64(),
+                        parsed["Availability"].as_u64(),
                     ) {
                         // Update stock prices
                         {
