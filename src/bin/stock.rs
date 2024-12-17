@@ -3,14 +3,16 @@ mod stock_data;
 use amiquip::{Connection, ConsumerMessage, ConsumerOptions, Exchange, Publish, QueueDeclareOptions};
 use rand::Rng;
 use stock_data::{initialize_stocks, Stock};
-use std::sync::{Arc, Mutex};
-use std::{thread, time::Duration};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::{Duration,Instant};
 
 fn main() {
+    let start_time = Instant::now();
+    let shutdown_time = Duration::from_secs(60); // 1 minute
 
     // Shared stock data
     let shared_stock_data = Arc::new(Mutex::new(initialize_stocks()));
-
     
     // Start the thread to periodically publish stock updates
     let stock_data_for_publishing = Arc::clone(&shared_stock_data);
@@ -39,19 +41,38 @@ fn main() {
         consume_orders(&channel, stock_data_for_orders);
     });
 
+    // Internal mpsc communication for stock updates
+    let (event_sender, event_receiver) = mpsc::channel::<(String, f64)>(); // Event: (Event Name, Impact %)
+
+    // Thread to listen for internal events and update stock data
+    let stock_data_for_receiver = Arc::clone(&shared_stock_data);
+    thread::spawn(move || {
+        process_stock_events(event_receiver, stock_data_for_receiver);
+    });
+
     // Start the thread to apply random events
-    let stock_data_for_events = Arc::clone(&shared_stock_data);
+    //let stock_data_for_events = Arc::clone(&shared_stock_data);
+    let sender_clone = event_sender.clone();
     thread::spawn(move || {
         loop {
             thread::sleep(Duration::from_secs(20)); // Trigger random events every 20 seconds
-            apply_random_event(&stock_data_for_events);
+            apply_random_event(sender_clone.clone());
         }
     });
     
-    // Keep the main thread alive for future extensions
-    loop {
-        thread::sleep(Duration::from_secs(1));
+    // // Keep the main thread alive for future extensions
+    // loop {
+    //     thread::sleep(Duration::from_secs(1));
+    // }
+
+    // Market will close after 1 minute
+    println!("Market Open!");
+
+    while Instant::now() - start_time < shutdown_time {
+        thread::sleep(Duration::from_secs(1)); // Check the timer every second
     }
+
+    println!("Market Closed!");
 }
 
 
@@ -177,43 +198,91 @@ fn consume_orders(channel: &amiquip::Channel, stock_data: Arc<Mutex<Vec<Stock>>>
 
 
 
-// Function to apply random events
-fn apply_random_event(stock_data: &Arc<Mutex<Vec<Stock>>>) {
+// // Function to apply random events
+// fn apply_random_event(stock_data: &Arc<Mutex<Vec<Stock>>>) {
+//     let mut rng = rand::thread_rng();
+
+//     // Define some random events with their impact percentage
+//     let events = vec![
+//         ("US Election", 0.2),         // 20% increase or decrease
+//         ("Tech Bubble Burst", -0.3), // 30% decrease
+//         ("Interest Rate Hike", -0.1), // 10% decrease
+//         ("Major Product Launch", 0.25), // 25% increase
+//         ("Economic Boom", 0.15),     // 15% increase
+//         ("Pandemic News", -0.2),     // 20% decrease
+//     ];
+
+//     // Randomly select an event
+//     let (event_name, impact) = events[rng.gen_range(0..events.len())];
+//     println!("\n[Random Event Triggered]: {} with impact {:.2}%", event_name, impact * 100.0);
+
+//     // Apply the impact to all stocks
+//     let mut stock_data_locked = stock_data.lock().unwrap();
+//     for stock in stock_data_locked.iter_mut() {
+//         let fluctuation = stock.price * impact;
+//         stock.price = (stock.price + fluctuation).max(1.0); // Ensure price stays above 1.0
+//     }
+
+//     //println!("\n[Stock Prices Updated]: {:?} \n", stocks);
+//     // Print each stock on a new line
+//     println!("--- Updated Stock Prices ---");
+//     for stock in stock_data_locked.iter() {
+//         println!(
+//             "Stock: {:<10} | New Price: {:.2} | Availability: {}",
+//             stock.name, stock.price, stock.availability
+//         );
+//     }
+//     println!("--------------------------------------------------------------------------\n");
+
+// }
+
+
+
+// Function to apply random events (sends events via mpsc)
+fn apply_random_event(sender: mpsc::Sender<(String, f64)>) {
     let mut rng = rand::thread_rng();
 
-    // Define some random events with their impact percentage
     let events = vec![
-        ("US Election", 0.2),         // 20% increase or decrease
-        ("Tech Bubble Burst", -0.3), // 30% decrease
-        ("Interest Rate Hike", -0.1), // 10% decrease
-        ("Major Product Launch", 0.25), // 25% increase
-        ("Economic Boom", 0.15),     // 15% increase
-        ("Pandemic News", -0.2),     // 20% decrease
+        ("US Election", 0.2),
+        ("Tech Bubble Burst", -0.3),
+        ("Interest Rate Hike", -0.1),
+        ("Major Product Launch", 0.25),
+        ("Economic Boom", 0.15),
+        ("Pandemic News", -0.2),
     ];
 
-    // Randomly select an event
     let (event_name, impact) = events[rng.gen_range(0..events.len())];
-    println!("\n[Random Event Triggered]: {} with impact {:.2}%", event_name, impact * 100.0);
 
-    // Apply the impact to all stocks
-    let mut stock_data_locked = stock_data.lock().unwrap();
-    for stock in stock_data_locked.iter_mut() {
-        let fluctuation = stock.price * impact;
-        stock.price = (stock.price + fluctuation).max(1.0); // Ensure price stays above 1.0
+    println!(
+        "\n[Random Event Triggered]: {} with impact {:.2}%",
+        event_name,
+        impact * 100.0
+    );
+
+    // Send the event to the receiver thread
+    if let Err(e) = sender.send((event_name.to_string(), impact)) {
+        eprintln!("[Error] Failed to send event: {}", e);
     }
-
-    //println!("\n[Stock Prices Updated]: {:?} \n", stocks);
-    // Print each stock on a new line
-    println!("--- Updated Stock Prices ---");
-    for stock in stock_data_locked.iter() {
-        println!(
-            "Stock: {:<10} | New Price: {:.2} | Availability: {}",
-            stock.name, stock.price, stock.availability
-        );
-    }
-    println!("--------------------------------------------------------------------------\n");
-
 }
 
+// Receiver thread function to process events
+fn process_stock_events(receiver: mpsc::Receiver<(String, f64)>, stock_data: Arc<Mutex<Vec<Stock>>>) {
+    for (event_name, impact) in receiver {
+        println!("\n[Processing Event]: {} | Impact: {:.2}%", event_name, impact * 100.0);
 
+        let mut stock_data_locked = stock_data.lock().unwrap();
+        for stock in stock_data_locked.iter_mut() {
+            let fluctuation = stock.price * impact;
+            stock.price = (stock.price + fluctuation).max(1.0);
+        }
 
+        println!("--- Updated Stock Prices After Event ---");
+        for stock in stock_data_locked.iter() {
+            println!(
+                "Stock: {:<10} | New Price: {:.2} | Availability: {}",
+                stock.name, stock.price, stock.availability
+            );
+        }
+        println!("--------------------------------------------------------------------------");
+    }
+}

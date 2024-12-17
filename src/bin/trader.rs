@@ -231,8 +231,12 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use stock_data::initialize_stocks;
+use std::time::Instant; 
 
 fn main() {
+    let start_time = Instant::now();
+    let shutdown_time = Duration::from_secs(60); // 1 minute
+    
     // Setup shared state and initialize brokers
     let (order_id, stock_prices, receiver, brokers) = setup_shared_state_and_brokers();
 
@@ -241,8 +245,16 @@ fn main() {
     start_order_processing_thread(receiver);
     start_order_generation_thread(brokers, Arc::clone(&order_id), Arc::clone(&stock_prices));
 
-    // Keep the main thread alive
-    keep_main_thread_alive();
+    // // Keep the main thread alive
+    // keep_main_thread_alive();
+    // Market will close after 1 minute
+    println!("Market Open!");
+
+    while Instant::now() - start_time < shutdown_time {
+        thread::sleep(Duration::from_secs(1)); // Check the timer every second
+    }
+
+    println!("Market Closed!");
 }
 
 // Function to set up shared state and initialize brokers
