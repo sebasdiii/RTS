@@ -6,22 +6,27 @@ use stock_data::{initialize_stocks, Stock};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-
+/// Enum for stock updates
+enum StockUpdate {
+    RandomEvent { event_name: String, impact: f64 },
+    PriceFluctuation { stock_name: String, fluctuation: f64 },
+    Order { stock_name: String, action: String, quantity: u32 },
+}
 fn main() {
     let start_time = Instant::now();
     let shutdown_time = Duration::from_secs(60); // 1 minute
 
-    // Initialize shared stock data and internal communication channel
+    // Shared stock data and mpsc channel
     let shared_stock_data = Arc::new(Mutex::new(initialize_stocks()));
-    let (event_sender, event_receiver) = mpsc::channel::<(String, f64)>(); // mpsc channel
+    let (event_sender, event_receiver) = mpsc::channel::<StockUpdate>();
 
-    // Start system components
+    // Start internal components
     start_stock_publisher(Arc::clone(&shared_stock_data));
-    start_order_consumer(Arc::clone(&shared_stock_data));
+    start_order_consumer(event_sender.clone());
     start_event_processor(event_receiver, Arc::clone(&shared_stock_data));
-    start_random_event_trigger(event_sender);
+    start_random_event_trigger(event_sender.clone());
+    start_price_fluctuator(event_sender);
 
-    // Keep the main thread alive for 1 minute
     println!("Market Open!");
     run_market_timer(start_time, shutdown_time);
     println!("Market Closed!");
@@ -35,46 +40,7 @@ fn start_stock_publisher(stock_data: Arc<Mutex<Vec<Stock>>>) {
         let channel = connection.open_channel(None).expect("Failed to open channel");
         let exchange = Exchange::direct(&channel);
 
-        publish_stock_updates(&stock_data, &exchange);
-    });
-}
-
-/// Start the order consumer thread
-fn start_order_consumer(stock_data: Arc<Mutex<Vec<Stock>>>) {
-    thread::spawn(move || {
-        let mut connection =
-            Connection::insecure_open("amqp://guest:guest@localhost:5672").expect("Failed to connect to RabbitMQ");
-        let channel = connection.open_channel(None).expect("Failed to open channel");
-
-        consume_orders(&channel, stock_data);
-    });
-}
-
-/// Start the internal event processor thread
-fn start_event_processor(receiver: mpsc::Receiver<(String, f64)>, stock_data: Arc<Mutex<Vec<Stock>>>) {
-    thread::spawn(move || {
-        process_stock_events(receiver, stock_data);
-    });
-}
-
-/// Start the random event trigger thread
-fn start_random_event_trigger(sender: mpsc::Sender<(String, f64)>) {
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(20)); // Trigger random events every 20 seconds
-        apply_random_event(sender.clone());
-    });
-}
-
-/// Function to run the market timer
-fn run_market_timer(start_time: Instant, shutdown_time: Duration) {
-    while Instant::now() - start_time < shutdown_time {
-        thread::sleep(Duration::from_secs(1));
-    }
-}
-
-// Function to publish stock updates every 5 seconds
-fn publish_stock_updates(stock_data: &Arc<Mutex<Vec<Stock>>>, exchange: &Exchange) {
-    loop {
+        // Initial Publish (before the loop)
         {
             let stock_data_locked = stock_data.lock().unwrap();
             for stock in stock_data_locked.iter() {
@@ -85,120 +51,184 @@ fn publish_stock_updates(stock_data: &Arc<Mutex<Vec<Stock>>>, exchange: &Exchang
 
                 exchange
                     .publish(Publish::new(message.as_bytes(), "stock_updates"))
+                    .expect("Failed to publish initial stock update");
+
+                println!("[Stock Sent Initially] {}", message);
+            }
+        }
+
+        loop {
+            thread::sleep(Duration::from_secs(5)); // Publish updates every 5 seconds
+
+            let stock_data_locked = stock_data.lock().unwrap();
+            for stock in stock_data_locked.iter() {
+                let message = format!(
+                    "{{\"Stock\": \"{}\", \"Price\": {:.2}, \"Availability\": {}}}",
+                    stock.name, stock.price, stock.availability
+                );
+
+                // Publish the stock update to RabbitMQ
+                exchange
+                    .publish(Publish::new(message.as_bytes(), "stock_updates"))
                     .expect("Failed to publish stock update");
 
                 println!("[Stock Sent] {}", message);
             }
+            //thread::sleep(Duration::from_secs(5)); // Publish updates every 5 seconds
             println!("--------------------------------------------------------------------------");
         }
+    });
+}
 
-        {
+/// Start the order consumer thread
+fn start_order_consumer(event_sender: mpsc::Sender<StockUpdate>) {
+    thread::spawn(move || {
+        let mut connection =
+            Connection::insecure_open("amqp://guest:guest@localhost:5672").expect("Failed to connect to RabbitMQ");
+        let channel = connection.open_channel(None).expect("Failed to open channel");
+
+        let queue = channel.queue_declare("order_queue", QueueDeclareOptions::default())
+            .expect("Failed to declare queue");
+
+        let consumer = queue.consume(ConsumerOptions::default())
+            .expect("Failed to start consumer");
+
+        println!("\n[Stock System Monitoring Orders...]\n");
+
+        for message in consumer.receiver().iter() {
+            match message {
+                ConsumerMessage::Delivery(delivery) => {
+                    let order_data = String::from_utf8_lossy(&delivery.body);
+                    println!("[Order Received] {}", order_data);
+
+                    if let Ok(order) = serde_json::from_str::<serde_json::Value>(&order_data) {
+                        let stock_name = order["stock"].as_str().unwrap_or("").to_string();
+                        let action = order["action"].as_str().unwrap_or("").to_string();
+                        let quantity = order["quantity"].as_u64().unwrap_or(0) as u32;
+
+                        // Send order update via mpsc
+                        event_sender.send(StockUpdate::Order {
+                            stock_name,
+                            action,
+                            quantity,
+                        }).expect("Failed to send order update");
+                    }
+
+                    consumer.ack(delivery).expect("Failed to acknowledge message");
+                }
+                other => {
+                    println!("Consumer ended: {:?}", other);
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn start_event_processor(receiver: mpsc::Receiver<StockUpdate>, stock_data: Arc<Mutex<Vec<Stock>>>) {
+    thread::spawn(move || {
+        for update in receiver {
             let mut stock_data_locked = stock_data.lock().unwrap();
-            for stock in stock_data_locked.iter_mut() {
-                stock.fluctuate_price();
-            }
-        }
 
-        thread::sleep(Duration::from_secs(5));
-    }
-}
-
-// Function to consume orders from the queue
-fn consume_orders(channel: &amiquip::Channel, stock_data: Arc<Mutex<Vec<Stock>>>) {
-    let queue = channel.queue_declare("order_queue", QueueDeclareOptions::default())
-        .expect("Failed to declare queue");
-
-    let consumer = queue.consume(ConsumerOptions::default())
-        .expect("Failed to start consumer");
-
-    println!("\n[Stock System Monitoring Orders...]\n");
-
-    for message in consumer.receiver().iter() {
-        match message {
-            ConsumerMessage::Delivery(delivery) => {
-                let order_data = String::from_utf8_lossy(&delivery.body);
-                println!("[Order Received] {}", order_data);
-
-                process_order(&order_data, &stock_data);
-                consumer.ack(delivery).expect("Failed to acknowledge message");
-            }
-            other => {
-                println!("Consumer ended: {:?}", other);
-                break;
-            }
-        }
-    }
-}
-
-// Function to process an individual order
-fn process_order(order_data: &str, stock_data: &Arc<Mutex<Vec<Stock>>>) {
-    if let Ok(order) = serde_json::from_str::<serde_json::Value>(order_data) {
-        let stock_name = order["stock"].as_str().unwrap_or("");
-        let action = order["action"].as_str().unwrap_or("");
-        let quantity = order["quantity"].as_u64().unwrap_or(0) as u32;
-
-        let mut stock_data_locked = stock_data.lock().unwrap();
-        if let Some(stock) = stock_data_locked.iter_mut().find(|s| s.name == stock_name) {
-            let percentage_of_availability = quantity as f64 / stock.availability as f64;
-
-            match action {
-                "Buy" => {
-                    if stock.availability >= quantity {
-                        stock.availability -= quantity;
-                        stock.price += stock.price * (percentage_of_availability * 0.8).min(0.15);
-                        println!("[Order Processed] Stock: {}, Action: {}, Quantity: {}, Remaining: {}, New Price: {:.2}\n", stock_name, action, quantity, stock.availability, stock.price);
-                    } else {
-                        println!("[Order Rejected] Insufficient stock for {}: Requested {}, Available {}", stock_name, quantity, stock.availability);
+            match update {
+                // Process Random Events
+                StockUpdate::RandomEvent { event_name, impact } => {
+                    println!("\n[Processing Random Event]: {} | Impact: {:.2}%", event_name, impact * 100.0);
+                    for stock in stock_data_locked.iter_mut() {
+                        stock.price = (stock.price + stock.price * impact).max(1.0);
                     }
                 }
-                "Sell" => {
-                    stock.availability += quantity;
-                    stock.price = (stock.price - stock.price * (percentage_of_availability * 0.8).min(0.15)).max(1.0);
-                    println!("[Order Processed] Stock: {}, Action: {}, Quantity: {}, New Availability: {}, New Price: {:.2}\n", stock_name, action, quantity, stock.availability, stock.price);
+                // Process Price Fluctuations
+                StockUpdate::PriceFluctuation { stock_name, fluctuation } => {
+                    if let Some(stock) = stock_data_locked.iter_mut().find(|s| s.name == stock_name) {
+                        stock.price = (stock.price + stock.price * fluctuation).max(1.0);
+                    }
                 }
-                _ => println!("[Order Error] Unknown action: {}", action),
+                // Process Orders (Buy/Sell)
+                StockUpdate::Order { stock_name, action, quantity } => {
+                    if let Some(stock) = stock_data_locked.iter_mut().find(|s| s.name == stock_name) {
+                        match action.as_str() {
+                            "Buy" => {
+                                if stock.availability >= quantity {
+                                    stock.availability -= quantity;
+                                    stock.price += stock.price * 0.05;
+
+                                    // Print stock details after Buy
+                                    println!(
+                                        "[Order Processed: Buy] Stock: {}, New Price: {:.2}, New Availability: {}",
+                                        stock.name, stock.price, stock.availability
+                                    );
+                                    println!("--------------------------------------------------------------------------");
+                                } else {
+                                    println!(
+                                        "[Order Rejected: Buy] Insufficient availability for {}: Requested {}, Available {}",
+                                        stock.name, quantity, stock.availability
+                                    );
+                                }
+                            }
+                            "Sell" => {
+                                stock.availability += quantity;
+                                stock.price = (stock.price - stock.price * 0.05).max(1.0);
+
+                                // Print stock details after Sell
+                                println!(
+                                        "[Order Processed: Sell] Stock: {}, New Price: {:.2}, New Availability: {}\n",
+                                        stock.name, stock.price, stock.availability
+                                    );
+                                println!("--------------------------------------------------------------------------");
+                            }
+                            _ => println!("[Order Error] Unknown action: {}", action),
+                        }
+                    } else {
+                        println!("[Order Error] Stock not found: {}", stock_name);
+                    }
+                }
             }
-        } else {
-            println!("[Order Error] Stock not found: {}", stock_name);
         }
+    });
+}
+
+/// Start the random event trigger thread
+fn start_random_event_trigger(sender: mpsc::Sender<StockUpdate>) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(25)); // Trigger random events every 20 seconds
+
+        let mut rng = rand::thread_rng();
+        let events = vec![
+            ("US Election", 0.2),
+            ("Interest Rate Hike", -0.1),
+            ("Economic Boom", 0.15),
+            ("Pandemic News", -0.2),
+        ];
+        let (event_name, impact) = events[rng.gen_range(0..events.len())];
+
+        sender.send(StockUpdate::RandomEvent {
+            event_name: event_name.to_string(),
+            impact,
+        }).expect("Failed to send random event");
+    });
+}
+
+/// Function to run the market timer
+fn run_market_timer(start_time: Instant, shutdown_time: Duration) {
+    while Instant::now() - start_time < shutdown_time {
+        thread::sleep(Duration::from_secs(1));
     }
 }
 
-// Function to apply random events
-fn apply_random_event(sender: mpsc::Sender<(String, f64)>) {
-    let mut rng = rand::thread_rng();
-    let events = vec![
-        ("US Election", 0.2),
-        ("Tech Bubble Burst", -0.3),
-        ("Interest Rate Hike", -0.1),
-        ("Major Product Launch", 0.25),
-        ("Economic Boom", 0.15),
-        ("Pandemic News", -0.2),
-    ];
 
-    let (event_name, impact) = events[rng.gen_range(0..events.len())];
-    println!("\n[Random Event Triggered]: {} with impact {:.2}%", event_name, impact * 100.0);
+/// Start the price fluctuation thread
+fn start_price_fluctuator(sender: mpsc::Sender<StockUpdate>) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(5)); // Trigger fluctuations every 5 seconds
 
-    if let Err(e) = sender.send((event_name.to_string(), impact)) {
-        eprintln!("[Error] Failed to send event: {}", e);
-    }
-}
-
-// Function to process events and update stock prices
-fn process_stock_events(receiver: mpsc::Receiver<(String, f64)>, stock_data: Arc<Mutex<Vec<Stock>>>) {
-    for (event_name, impact) in receiver {
-        println!("\n[Processing Event]: {} | Impact: {:.2}%", event_name, impact * 100.0);
-
-        let mut stock_data_locked = stock_data.lock().unwrap();
-        for stock in stock_data_locked.iter_mut() {
-            let fluctuation = stock.price * impact;
-            stock.price = (stock.price + fluctuation).max(1.0);
+        let stocks = initialize_stocks(); // Replace with actual shared stock logic if needed
+        for stock in stocks {
+            let fluctuation = (rand::random::<f64>() - 0.5) * 0.2;   //fluctuation between -10% and +10%
+            sender.send(StockUpdate::PriceFluctuation {
+                stock_name: stock.name.clone(),
+                fluctuation,
+            }).expect("Failed to send price fluctuation");
         }
-
-        println!("--- Updated Stock Prices After Event ---");
-        for stock in stock_data_locked.iter() {
-            println!("Stock: {:<10} | New Price: {:.2} | Availability: {}", stock.name, stock.price, stock.availability);
-        }
-        println!("--------------------------------------------------------------------------");
-    }
+    });
 }

@@ -1,20 +1,9 @@
-use rand::random;
-
 #[derive(Debug, Clone)]
 
 pub struct Stock {
     pub name: String,
     pub price: f64,
     pub availability: u32, // Number of shares available
-}
-
-impl Stock {
-    // Simulate price fluctuation for the stock
-    pub fn fluctuate_price(&mut self) {
-        let percentage_change = (random::<f64>() - 0.5) * 0.2; // Random percentage change [-10%, +10%]
-        let change = self.price * percentage_change;
-        self.price = (self.price + change).max(1.0); // Ensure price stays positive
-    }
 }
 
 // Function to initialize stock data
@@ -25,5 +14,60 @@ pub fn initialize_stocks() -> Vec<Stock> {
         Stock { name: "AMZN".to_string(), price: 3400.0, availability: 600 },
         Stock { name: "TSLA".to_string(), price: 700.0, availability: 1200 },
         Stock { name: "MSFT".to_string(), price: 290.0, availability: 900 },
+        Stock { name: "META".to_string(), price: 320.0, availability: 850 },
+        Stock { name: "NVDA".to_string(), price: 500.0, availability: 950 },
+        Stock { name: "ORCL".to_string(), price: 85.0, availability: 1100 },
+        Stock { name: "IBM".to_string(), price: 140.0, availability: 500 },
+        Stock { name: "INTC".to_string(), price: 30.0, availability: 700 },
+        Stock { name: "FORD".to_string(), price: 12.0, availability: 1500 },
+        Stock { name: "GM".to_string(), price: 45.0, availability: 1200 },
+        Stock { name: "FERRARI".to_string(), price: 280.0, availability: 300 },
+        Stock { name: "TOYOTA".to_string(), price: 160.0, availability: 1300 },
+        Stock { name: "HONDA".to_string(), price: 40.0, availability: 1000 },
+        Stock { name: "JPM".to_string(), price: 150.0, availability: 800 },
+        Stock { name: "BOA".to_string(), price: 36.0, availability: 1200 },
+        Stock { name: "HSBC".to_string(), price: 30.0, availability: 1100 },
+        Stock { name: "CITI".to_string(), price: 60.0, availability: 700 },
+        Stock { name: "WELLS".to_string(), price: 50.0, availability: 900 },
+        Stock { name: "XOM".to_string(), price: 110.0, availability: 950 },
+        Stock { name: "BP".to_string(), price: 38.0, availability: 700 },
+        Stock { name: "CVX".to_string(), price: 160.0, availability: 600 },
+        Stock { name: "SHELL".to_string(), price: 50.0, availability: 1000 },
+        Stock { name: "TOTAL".to_string(), price: 70.0, availability: 800 },
+        Stock { name: "WMT".to_string(), price: 140.0, availability: 1500 },
+        Stock { name: "TGT".to_string(), price: 120.0, availability: 900 },
+        Stock { name: "COST".to_string(), price: 500.0, availability: 700 },
+        Stock { name: "MCD".to_string(), price: 280.0, availability: 800 },
+        Stock { name: "SBUX".to_string(), price: 100.0, availability: 1000 },
+        Stock { name: "PFE".to_string(), price: 40.0, availability: 1500 },
+        Stock { name: "JNJ".to_string(), price: 170.0, availability: 800 },
+        Stock { name: "MRK".to_string(), price: 115.0, availability: 600 },
+        Stock { name: "ABBV".to_string(), price: 150.0, availability: 500 },
+        Stock { name: "AMGN".to_string(), price: 240.0, availability: 700 },
+        Stock { name: "DIS".to_string(), price: 90.0, availability: 1000 },
+        Stock { name: "NFLX".to_string(), price: 450.0, availability: 700 },
+        Stock { name: "SPOT".to_string(), price: 160.0, availability: 300 },
+        Stock { name: "SNAP".to_string(), price: 10.0, availability: 900 },
+        Stock { name: "UBER".to_string(), price: 50.0, availability: 1200 },
+        Stock { name: "LYFT".to_string(), price: 15.0, availability: 800 },
+        Stock { name: "TWTR".to_string(), price: 70.0, availability: 700 },
+        Stock { name: "PYPL".to_string(), price: 95.0, availability: 1000 },
+        Stock { name: "SQ".to_string(), price: 80.0, availability: 900 },
+        Stock { name: "CAT".to_string(), price: 240.0, availability: 600 },
+        Stock { name: "DE".to_string(), price: 380.0, availability: 500 },
+        Stock { name: "GE".to_string(), price: 120.0, availability: 700 },
+        Stock { name: "BA".to_string(), price: 220.0, availability: 800 },
+        Stock { name: "LMT".to_string(), price: 450.0, availability: 400 },
+        Stock { name: "ZOOM".to_string(), price: 70.0, availability: 600 },
+        Stock { name: "DOCU".to_string(), price: 50.0, availability: 700 },
+        Stock { name: "SHOP".to_string(), price: 60.0, availability: 800 },
+        Stock { name: "ADBE".to_string(), price: 430.0, availability: 500 },
+        Stock { name: "CRM".to_string(), price: 210.0, availability: 400 },
+        Stock { name: "BABA".to_string(), price: 85.0, availability: 1200 }, 
+        Stock { name: "NKE".to_string(), price: 120.0, availability: 900 }, 
+        Stock { name: "PEP".to_string(), price: 180.0, availability: 800 }, 
+        Stock { name: "KO".to_string(), price: 60.0, availability: 1100 },  
+        Stock { name: "CSCO".to_string(), price: 55.0, availability: 1000 },
+        Stock { name: "TSM".to_string(), price: 95.0, availability: 850 },
     ]
 }
