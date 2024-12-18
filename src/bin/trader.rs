@@ -1,4 +1,3 @@
-mod ui;
 mod stock_data;
 mod brokers;
 
@@ -100,7 +99,7 @@ fn start_order_processing_thread(receiver: mpsc::Receiver<Order>) {
                 .publish(Publish::new(order_json.as_bytes(), "order_queue"))
                 .expect("Failed to publish order");
 
-            println!("[Stock System] Order Sent: {:?}\n\n------------------------------------------------------------\n", order);
+            println!("[Stock System] Order Sent: {:?}\n\n--------------------------------------------------------------------------\n", order);
         }
     });
 }
@@ -127,9 +126,9 @@ fn start_order_generation_thread(
                 &stock_list,
             );
 
-            println!("[Client] Order Sent: {:?}\n", order);
+            println!("--------------------------------------------------------------------------\n[Client] Order Sent: {:?}\n", order);
 
-            println!("[Broker] Order Received: {:?}\n------------------------------------------------------------", order);
+            println!("[Broker] Order Received: {:?}\n--------------------------------------------------------------------------", order);
 
             // Process the order based on its type
             match order.order_type.as_str() {
@@ -213,7 +212,7 @@ fn consume_stock_updates(
         .expect("Failed to start consumer");
 
     println!("[Stock Update Monitor Started]");
-    println!("------------------------------------------------------------");
+    println!("--------------------------------------------------------------------------");
 
     for message in consumer.receiver().iter() {
         match message {
@@ -246,7 +245,6 @@ fn consume_stock_updates(
                     .ack(delivery)
                     .expect("Failed to acknowledge message");
 
-                println!("------------------------------------------------------------");
             }
             other => {
                 println!("Consumer ended: {:?}", other);
@@ -287,7 +285,7 @@ fn process_limit_order(
                 // Send the order to the stock system
                 sender.send(order.clone()).expect("Failed to send limit order to stock system");
                 println!(
-                    "[Broker] Limit order sent to stock system: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}\n------------------------------------------------------------\n",
+                    "[Broker] Limit order sent to stock system: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}\n--------------------------------------------------------------------------\n",
                     stock_name, order.action, order.quantity, order.price
                 );
                 break;

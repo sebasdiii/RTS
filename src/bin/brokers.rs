@@ -95,7 +95,7 @@ impl Broker {
         let stock_prices = Arc::clone(&self.stock_prices);
         let sender = self.sender.clone();
     
-        println!("\n------------------------------------------------------------\n");
+        println!("\n--------------------------------------------------------------------------\n");
         println!(
             "[Limit Order Received]\n  Stock: {}\n  Action: {}\n  Quantity: {}\n  Limit Price: {:.2}",
             stock_name, action, order.quantity, limit_price
@@ -128,7 +128,7 @@ impl Broker {
                         .expect("Failed to send limit order to stock system");
     
                     println!(
-                        "[Stock System] Order Sent: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}, Type: Limit\n------------------------------------------------------------\n",
+                        "[Stock System] Order Sent: Stock: {}, Action: {}, Quantity: {}, Price: {:.2}, Type: Limit\n--------------------------------------------------------------------------\n",
                         stock_name, action, order.quantity, current_price
                     );
                     break;
